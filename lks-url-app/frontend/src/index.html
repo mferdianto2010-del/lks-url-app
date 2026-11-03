@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stats Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg1:#0b1a1f; --bg2:#101d22; --panel:#0e1b20; --line:#1e3037;
+    --ink:#e8eef0; --mute:#8aa0a8; --green:#1fb68a; --purple:#8b5cf6; --blue:#3b82f6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif;
+    background:linear-gradient(180deg,#34444a 0,#18272c 220px,var(--bg1) 520px) fixed}
+  header{display:flex;gap:20px;align-items:center;padding:14px 32px;border-bottom:1px solid var(--line);background:rgba(8,18,22,.7)}
+  header b{font-weight:600}
+  header span{color:var(--mute)}
+  main{max-width:880px;margin:0 auto;padding:28px 20px 60px}
+  h1{font:600 30px/1.2 Georgia,serif;margin:12px 0 18px}
+  .bar{display:flex;gap:10px;background:var(--panel);border:1px solid var(--line);padding:10px;border-radius:8px}
+  input{flex:1;background:#0a1519;border:1px solid var(--line);color:var(--ink);padding:9px 12px;border-radius:6px;font:inherit}
+  input:focus-visible,button:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  button{background:#e8eef0;color:#0b1a1f;border:0;border-radius:6px;padding:9px 16px;font:600 14px inherit;cursor:pointer}
+  .note{color:var(--mute);margin:10px 2px 0;font-size:13px;min-height:20px}
+  .note a{color:var(--green)}
+  .stat{margin:18px 0 8px;color:var(--mute)}
+  .stat b{color:var(--ink);font-size:22px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;height:250px;display:flex;flex-direction:column}
+  .card h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--mute)}
+  .card div{position:relative;flex:1;min-height:0}
+  .empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--mute);font-size:13px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><b>URL Shortener</b><span>Arasaka Corp.</span></header>
+<main>
+  <h1>Stats Dashboard</h1>
+
+  <form class="bar" id="shorten">
+    <input id="url" type="url" placeholder="Tempel URL panjang di sini" required aria-label="URL panjang">
+    <input id="alias" placeholder="Alias (opsional)" style="max-width:170px" aria-label="Alias">
+    <button type="submit">Buat short link</button>
+  </form>
+  <p class="note" id="shortMsg"></p>
+
+  <form class="bar" id="lookup">
+    <input id="code" placeholder="Cari statistik berdasarkan short code" aria-label="Short code">
+    <button type="submit">Cari</button>
+  </form>
+  <p class="note" id="lookMsg"></p>
+
+  <p class="stat">Total klik: <b id="total">0</b> <span id="scope"></span></p>
+
+  <section class="grid">
+    <article class="card"><h3>Klik per jam (24 jam terakhir)</h3><div><canvas id="cTime"></canvas><span class="empty" id="eTime">Belum ada data</span></div></article>
+    <article class="card"><h3>Perangkat</h3><div><canvas id="cDev"></canvas><span class="empty" id="eDev">Belum ada data</span></div></article>
+    <article class="card"><h3>Link teratas</h3><div><canvas id="cTop"></canvas><span class="empty" id="eTop">Belum ada data</span></div></article>
+    <article class="card"><h3>Browser</h3><div><canvas id="cBrw"></canvas><span class="empty" id="eBrw">Belum ada data</span></div></article>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+Chart.defaults.color = '#8aa0a8';
+Chart.defaults.borderColor = '#1e3037';
+const charts = {};
+const palette = ['#1fb68a', '#8b5cf6', '#3b82f6', '#f59e0b', '#ef4444', '#64748b'];
+
+function draw(key, canvas, empty, config, hasData) {
+  if (charts[key]) charts[key].destroy();
+  $(empty).style.display = hasData ? 'none' : 'flex';
+  $(canvas).style.visibility = hasData ? 'visible' : 'hidden';
+  if (!hasData) return;
+  charts[key] = new Chart($(canvas), config);
+}
+
+function render(d, scopeLabel) {
+  $('total').textContent = d.total_clicks;
+  $('scope').textContent = scopeLabel || '';
+  const opt = { responsive: true, maintainAspectRatio: false };
+
+  draw('time', 'cTime', 'eTime', {
+    type: 'line',
+    data: { labels: d.timeline.map(r => r.t.slice(11, 16)), datasets: [{ data: d.timeline.map(r => r.n), borderColor: '#1fb68a', backgroundColor: '#1fb68a33', fill: true, tension: .3 }] },
+    options: { ...opt, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+  }, d.timeline.length > 0);
+
+  draw('dev', 'cDev', 'eDev', {
+    type: 'doughnut',
+    data: { labels: d.devices.map(r => r.label), datasets: [{ data: d.devices.map(r => r.n), backgroundColor: palette, borderWidth: 0 }] },
+    options: { ...opt, cutout: '65%', plugins: { legend: { position: 'bottom' } } },
+  }, d.devices.length > 0);
+
+  const top = d.top_links || [{ label: $('code').value, n: d.total_clicks }];
+  draw('top', 'cTop', 'eTop', {
+    type: 'bar',
+    data: { labels: top.map(r => r.label), datasets: [{ data: top.map(r => r.n), backgroundColor: '#8b5cf6', borderRadius: 4 }] },
+    options: { ...opt, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+  }, d.total_clicks > 0);
+
+  draw('brw', 'cBrw', 'eBrw', {
+    type: 'bar',
+    data: { labels: d.browsers.map(r => r.label), datasets: [{ data: d.browsers.map(r => r.n), backgroundColor: '#3b82f6', borderRadius: 4 }] },
+    options: { ...opt, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+  }, d.browsers.length > 0);
+}
+
+async function loadOverview() {
+  try {
+    const r = await fetch('/api/stats/overview');
+    render(await r.json(), 'semua link');
+  } catch { $('lookMsg').textContent = 'Gagal memuat statistik.'; }
+}
+
+$('shorten').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('shortMsg').textContent = 'Membuat link…';
+  const body = { url: $('url').value };
+  if ($('alias').value.trim()) body.alias = $('alias').value.trim();
+  try {
+    const r = await fetch('/api/links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) { $('shortMsg').textContent = d.error || 'Gagal membuat link.'; return; }
+    $('shortMsg').innerHTML = 'Short link: <a target="_blank" rel="noopener" href="' + d.short_url + '">' + d.short_url + '</a> (kode: ' + d.code + ')';
+    $('code').value = d.code;
+  } catch { $('shortMsg').textContent = 'Gagal menghubungi API.'; }
+});
+
+$('lookup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const c = $('code').value.trim();
+  if (!c) { $('lookMsg').textContent = ''; return loadOverview(); }
+  try {
+    const r = await fetch('/api/stats/code/' + encodeURIComponent(c));
+    render(await r.json(), 'untuk ' + c);
+    $('lookMsg').textContent = '';
+  } catch { $('lookMsg').textContent = 'Gagal memuat statistik kode ini.'; }
+});
+
+loadOverview();
+setInterval(() => { if (!$('code').value.trim()) loadOverview(); }, 15000);
+</script>
+</body>
+</html>
